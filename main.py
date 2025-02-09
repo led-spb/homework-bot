@@ -7,11 +7,10 @@ import argparse
 import schedule
 
 
-token = os.environ.get('API_TOKEN')
-education_id = int(os.environ.get('EDUCATION_ID'))
-bot_token = os.environ.get('BOT_TOKEN')
-chat_id = os.environ.get('CHAT_ID')
-
+token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiI1YzVjZmUwZDhhY2I1MDYwY2E0Y2FlYTciLCJsYXN0QWN0aXZpdHkiOjE3MzkwOTg3NDYsInR5cGUiOiJlbWFpbCIsImxhc3RJZCI6bnVsbH0.iSrQkHESXso6YbTUb4iwyE-SE-J54nS_XzFj0WVPIt0" # os.environ.get('API_TOKEN')
+education_id = 243850 # int(os.environ.get('EDUCATION_ID'))
+bot_token = "7638168367:AAEuB3Sgs62Sb33XKTY5cwTmYfiyeqaYM2w" # os.environ.get('BOT_TOKEN')
+chat_id = "1267600695" # os.environ.get('CHAT_ID')
 
 def get_lessons(date_from: date, date_to: date):
     params = {
@@ -80,7 +79,7 @@ def get_homework(lessons):
             tasks.append(i)
 
         if homework.get(subject_name) is None:
-            log.info("Lesson name is None... Skip")
+            log.debug("Lesson name is None... Skip")
             time_task.update({subject_name: date})
             homework.update({subject_name: tasks})
         else:
@@ -179,11 +178,6 @@ def bot_job(is_single_run = False):
             delta_days_backwards = 6
         lessons = get_lessons(date.today() - timedelta(days=delta_days_backwards), date.today())
         schedule = get_schedule(date.today() + timedelta(days=delta_days_forward))
-    except:
-        logging.exception('Error from petersburgedu API')
-        send_text(chat_id, u'Ahtung, Ahtung! Shit happens... Зовите санитаров(@Fiatikin или @FJSAGS)')
-        return
-
         log.info("Got schedule! No exceptions for now")
     except Exception as err:
         log.error("Don't worry! Please let us know via github!")
