@@ -159,11 +159,19 @@ def bot_job():
     homework = {}
     try:
         if date.weekday(date.today()) == 4:
-            delta_days = 3
+            delta_days_forward = 3
+            delta_days_backwards = 4
+        elif date.weekday(date.today()) == 5:
+            delta_days_forward = 2
+            delta_days_backwards = 5
+        elif date.weekday(date.today()) == 6:
+            delta_days_forward = 1
+            delta_days_backwards = 6
         else:
-            delta_days = 1
-        lessons = get_lessons(date.today() - timedelta(days=delta_days), date.today())
-        schedule = get_schedule(date.today() + timedelta(days=delta_days))
+            delta_days_forward = 1
+            delta_days_backwards = 1
+        lessons = get_lessons(date.today() - timedelta(days=delta_days_backwards), date.today())
+        schedule = get_schedule(date.today() + timedelta(days=delta_days_forward))
     except:
         logging.exception('Error from petersburgedu API')
         send_text(chat_id, u'Ahtung, Ahtung! Shit happens... Зовите санитаров(@Fiatikin или @FJSAGS)')
