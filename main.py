@@ -162,7 +162,7 @@ def bot_job():
             delta_days = 3
         else:
             delta_days = 1
-        lessons = get_lessons(date.today() - timedelta(days=delta_days), date.today())
+        lessons = get_lessons(date.today() - timedelta(days=8), date.today())
         schedule = get_schedule(date.today() + timedelta(days=delta_days))
     except:
         logging.exception('Error from petersburgedu API')
@@ -171,7 +171,7 @@ def bot_job():
 
     homework = get_homework(lessons)
     final_tasks = get_t_schedule(schedule, homework)
-    if len(final_tasks) > 0 and date.weekday(date.today()) != 6:
+    if len(final_tasks) > 0: #and date.weekday(date.today()) != 6:
         send_homework(final_tasks, chat_id)
     logging.info(f'{len(final_tasks)} total homeworks sended')
 
