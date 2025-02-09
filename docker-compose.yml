@@ -1,6 +1,7 @@
 version: '2'
 
 services:
+
   homework-bot:
       image: homework:latest
       restart: unless-stopped
