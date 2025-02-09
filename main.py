@@ -21,6 +21,7 @@ def get_lessons(date_from: date, date_to: date):
         'p_educations[]': education_id,
     }
     lessons = []
+    log.debug("Requesting lessons from API...")
     for i in range(5):
         req = requests.get(
             'https://dnevnik2.petersburgedu.ru/api/journal/lesson/list-by-education',
@@ -31,6 +32,7 @@ def get_lessons(date_from: date, date_to: date):
         )
         req.raise_for_status()
         res = req.json()
+        log.debug(f"{i}/5")
         lessons = lessons + res['data']['items']
         if res['data']['current'] >= res['data']['next']:
             break
@@ -46,6 +48,7 @@ def get_schedule(schedule_date: date):
         'p_educations[]': education_id,
     }
     lessons = []
+    log.debug("Requesting schedule from API...")
     for i in range(5):
         req = requests.get(
             'https://dnevnik2.petersburgedu.ru/api/journal/schedule/list-by-education',
@@ -56,6 +59,7 @@ def get_schedule(schedule_date: date):
         )
         req.raise_for_status()
         res = req.json()
+        log.debug(f"{i}/5")
         lessons = lessons + res['data']['items']
         if res['data']['current'] >= res['data']['next']:
             break
@@ -69,12 +73,14 @@ def get_homework(lessons):
 
     for elem in lessons:
         subject_name = elem['subject_name']
+        log.debug(f"Working on {subject_name}")
         tasks = []
         date = datetime.strptime(elem['datetime_from'], '%d.%m.%Y %H:%M:%S').date()
         for i in elem['tasks']:
             tasks.append(i)
 
         if homework.get(subject_name) is None:
+            log.info("Lesson name is None... Skip")
             time_task.update({subject_name: date})
             homework.update({subject_name: tasks})
         else:
@@ -89,6 +95,7 @@ def get_homework(lessons):
 
 
 def get_t_schedule(schedule, homework):
+    log.debug("Getting rid of tasks that aren't for tomorrow")
     tomorrow = set()
     for element in schedule:
         tomorrow.add(element['subject_name'])
@@ -98,6 +105,7 @@ def get_t_schedule(schedule, homework):
     for subject_name in tomorrow:
         tasks = homework.get(subject_name, [])
         for task in tasks:
+            log.debug("Looking for files...")
             files = []
             for file in task.get('files', []):
                 url = f'https://dnevnik2.petersburgedu.ru/api/filekit/file/download?p_uuid={file["uuid"]}'
@@ -154,9 +162,11 @@ def send_homework(subjects, chat_id):
                 send_document(chat_id, document)
 
 
-def bot_job():
-    logging.info('Started bot job')
-    homework = {}
+def bot_job(is_single_run = False):
+    if is_single_run:
+        log.debug("Doing a single run")
+    else:
+        log.info("Doing a scheduled run")
     try:
         if date.weekday(date.today()) == 4:
             delta_days_forward = 3
@@ -174,31 +184,52 @@ def bot_job():
         send_text(chat_id, u'Ahtung, Ahtung! Shit happens... Зовите санитаров(@Fiatikin или @FJSAGS)')
         return
 
+        log.info("Got schedule! No exceptions for now")
+    except Exception as err:
+        log.error("Don't worry! Please let us know via github!")
+        log.exception(err)
+        send_text(chat_id, u'Ahtung, Ahtung! Shit happens... Зовите санитаров: @FJSAGS, @Fiatikin')
+        exit(1)
+
+    log.debug("Playing with homework...")
     homework = get_homework(lessons)
     final_tasks = get_t_schedule(schedule, homework)
-    if len(final_tasks) > 0 and date.weekday(date.today()) != 6:
+    log.info("Finalized your homework. Sending...")
+    if len(final_tasks) > 0 and (date.weekday(date.today()) < 5 or is_single_run):
         send_homework(final_tasks, chat_id)
-    logging.info(f'{len(final_tasks)} total homeworks sended')
+        log.info(f'{len(final_tasks)}/{len(homework)} total homeworks sent.')
+        if is_single_run:
+            log.info("Done! Exiting...")
+        else:
+            log.info("Done! Next run will occur in 24 hours.")
+    else:
+        log.warning("No tasks for the next day found! Skipping...")
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('action', default="schedule", choices=['schedule', 'run'])
-    parser.add_argument('-v', default=False, action='store_true')
-    args = parser.parse_args()
+def main(action = schedule):
+    log.warning("Starting up...")
 
-    logging.basicConfig(level=logging.DEBUG if args.v else logging.INFO)
-
-    if args.action == 'run':
-        bot_job()
-        return
-
+    if action == 'run':
+        log.warning("Argument run detected! Bot will do a SINGLE run immediately, then close. Use 'schedule' to run continuously")
+        bot_job(True)
+        exit(0)
     schedule.every().day.at("16:00", "Europe/Moscow").do(bot_job)
-    logging.info('Scheduler started')
+    log.info('Scheduler started.')
     while True:
         schedule.run_pending()
         time.sleep(1)
 
 
 if __name__ == '__main__':
-    main()
+    log = logging.getLogger("Bot")
+    parser = argparse.ArgumentParser()
+    parser.add_argument('action', default="schedule", choices=['schedule', 'run'])
+    parser.add_argument('-v', default=False, action='store_true')
+    args = parser.parse_args()
+    if args.v:
+        logging.basicConfig(level=logging.DEBUG)
+        log.debug("Debug mode! More log messages will show up.")
+    else:
+        logging.basicConfig(level=logging.INFO)
+        log.info("Normal mode. Use '-v' for debug.")
+    main(args.action)
