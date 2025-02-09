@@ -164,12 +164,9 @@ def bot_job():
         elif date.weekday(date.today()) == 5:
             delta_days_forward = 2
             delta_days_backwards = 5
-        elif date.weekday(date.today()) == 6:
-            delta_days_forward = 1
-            delta_days_backwards = 6
         else:
             delta_days_forward = 1
-            delta_days_backwards = 1
+            delta_days_backwards = 6
         lessons = get_lessons(date.today() - timedelta(days=delta_days_backwards), date.today())
         schedule = get_schedule(date.today() + timedelta(days=delta_days_forward))
     except:
