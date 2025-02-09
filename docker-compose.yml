@@ -1,8 +1,10 @@
 version: '2'
 
 services:
+
   homework-bot:
       image: homework:latest
+      build: .
       restart: unless-stopped
       environment:
         - BOT_TOKEN=${BOT_TOKEN}
