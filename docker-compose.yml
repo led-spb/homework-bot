@@ -8,6 +8,5 @@ services:
       restart: unless-stopped
       environment:
         - BOT_TOKEN=${BOT_TOKEN}
-        - CHAT_ID=${CHAT_ID}
-        - API_TOKEN=${API_TOKEN}
-        - EDUCATION_ID=${EDUCATION_ID}
+      volumes:
+        ./dnevnik.db:/app/dnevnik.db
