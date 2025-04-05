@@ -5,5 +5,5 @@ COPY ./requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY ./*.py /app/
 
-ENTRYPOINT ["python", "main.py"]
+ENTRYPOINT ["python", "bot.py"]
 CMD ["schedule"]
