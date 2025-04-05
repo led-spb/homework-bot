@@ -18,37 +18,35 @@ database.row_factory = sqlite3.Row
 
 
 def init_database():
-    try:
-        res = database.execute('select count(*) from users').fetchone()
-    except sqlite3.OperationalError:
-        database.execute('CREATE TABLE users ('
-                         '  user_id INTEGER PRIMARY KEY, '
-                         '  state TEXT NOT NULL, '
-                         '  token TEXT, '
-                         '  education_id INTEGER, '
-                         '  chat_id INTEGER NOT NULL'
-                         ')')
+    database.execute('CREATE TABLE IF NOT EXISTS users ('
+                     '  user_id INTEGER PRIMARY KEY, '
+                     '  state TEXT NOT NULL, '
+                     '  token TEXT, '
+                     '  education_id INTEGER, '
+                     '  chat_id INTEGER NOT NULL'
+                     ')')
 
-        database.execute('CREATE TABLE educations ('
-                         '  education_id INTEGER PRIMARY KEY, '
-                         '  user_id INTEGER NOT NULL REFERENCES users(user_id), '
-                         '  firstname TEXT NOT NULL, '
-                         '  lastname TEXT NOT NULL, '
-                         '  school TEXT NOT NULL, '
-                         '  class TEXT NOT NULL'
-                         ')')
+    database.execute('CREATE TABLE IF NOT EXISTS educations ('
+                     '  education_id INTEGER, '
+                     '  user_id INTEGER NOT NULL REFERENCES users(user_id), '
+                     '  firstname TEXT NOT NULL, '
+                     '  lastname TEXT NOT NULL, '
+                     '  school TEXT NOT NULL, '
+                     '  class TEXT NOT NULL,'
+                     '  CONSTRAINT pk_educations PRIMARY KEY(education_id, user_id)'
+                     ')')
 
-        database.execute('CREATE TABLE schedules ('
-                         '  id INTEGER PRIMARY KEY AUTOINCREMENT, '
-                         '  user_id INTEGER REFERENCES users(user_id), '
-                         '  day INTEGER NOT NULL, '
-                         '  time TEXT NOT NULL'
-                         ')')
-        database.commit()
+    database.execute('CREATE TABLE IF NOT EXISTS schedules ('
+                     '  id INTEGER PRIMARY KEY AUTOINCREMENT, '
+                     '  user_id INTEGER REFERENCES users(user_id), '
+                     '  day INTEGER NOT NULL, '
+                     '  time TEXT NOT NULL'
+                     ')')
+    database.commit()
 
-        res = database.execute('select count(*) from users').fetchone()
+    res = database.execute('select count(*) from users').fetchone()
     logging.info(f'Total {res[0]} users registered')
-
+    return
 
 def get_user(user_id) -> dict:
     return database.execute('SELECT * FROM users WHERE user_id=?', (user_id,)).fetchone()
@@ -57,125 +55,136 @@ def get_user(user_id) -> dict:
 @bot.message_handler(commands=['start'])
 def send_welcome(message: telebot.types.Message):
     user_id = message.chat.id
-    user = get_user(user_id)
+    try:
+        user = get_user(user_id)
 
-    if user is not None:
-        database.execute(
-            'UPDATE users SET state=?, token=null, chat_id=user_id, education_id=null WHERE user_id=?',
-            (STATE_NEED_TOKEN, user_id)
-        )
+        if user is not None:
+            database.execute(
+                'UPDATE users SET state=?, token=null, chat_id=user_id, education_id=null WHERE user_id=?',
+                (STATE_NEED_TOKEN, user_id)
+            )
 
-        database.execute('DELETE FROM schedules WHERE user_id=?', (user_id,))
+            database.execute('DELETE FROM schedules WHERE user_id=?', (user_id,))
+            database.commit()
+
+        else:
+            database.execute(
+                'INSERT INTO users (user_id, state, chat_id) VALUES (?, ?, ?)',
+                (user_id, STATE_NEED_TOKEN, user_id)
+            )
+
+        for day in range(7):
+            database.execute(
+                'INSERT INTO schedules (user_id, day, time) VALUES (?, ?, ?)',
+                (user_id, day, "16:00")
+            )
         database.commit()
 
-    else:
-        database.execute(
-            'INSERT INTO users (user_id, state, chat_id) VALUES (?, ?, ?)',
-            (user_id, STATE_NEED_TOKEN, user_id)
+        bot.send_message(
+            user_id,
+            "Привет, это твой электронный дневник. Для продолжения настройки пришли токен от твоего электронного дневника"
         )
-
-    for day in range(7):
-        database.execute(
-            'INSERT INTO schedules (user_id, day, time) VALUES (?, ?, ?)',
-            (user_id, day, "16:00")
-        )
-    database.commit()
-
-    bot.send_message(
-        user_id,
-        "Привет, это твой электронный дневник. Для продолжения настройки пришли токен от твоего электронного дневника"
-    )
+    except:
+        logging.exception('send_welcome error')
+        bot.send_message(user_id, 'Произошла ошибка')
     return
 
 
 @bot.message_handler(commands=['token'])
 def send_token(message: telebot.types.Message):
     user_id = message.chat.id
+    try:
+        user = get_user(user_id)
+        if user is None:
+            bot.send_message(user_id, u"Сначала используй команду /start")
+            return
 
-    user = get_user(user_id)
-    if user is None:
-        bot.send_message(user_id, u"Сначала используй команду /start")
-        return
+        if user['state'] not in [STATE_NEED_TOKEN, STATE_NEED_EDUCATION, STATE_COMPLETE]:
+            database.execute(
+                'DELETE FROM educations WHERE user_id=?',
+                (user_id, )
+            )
+            database.execute(
+                'UPDATE users SET token=null WHERE user_id=?',
+                (user_id, )
+            )
+            database.commit()
 
-    if user['state'] not in [STATE_NEED_TOKEN, STATE_NEED_EDUCATION, STATE_COMPLETE]:
-        database.execute(
-            'DELETE FROM educations WHERE user_id=?',
-            (user_id, )
-        )
-        database.execute(
-            'UPDATE users SET token=null WHERE user_id=?',
-            (user_id, )
-        )
-        database.commit()
+        token = message.text.split(" ")[-1]
+        req = requests.get('https://dnevnik2.petersburgedu.ru/api/journal/person/related-child-list',
+                           headers={'X-Jwt-Token': token})
+        if req.status_code == 200:
+            res = req.json()
 
-    token = message.text.split(" ")[-1]
-    req = requests.get('https://dnevnik2.petersburgedu.ru/api/journal/person/related-child-list',
-                       headers={'X-Jwt-Token': token})
-    if req.status_code == 200:
-        res = req.json()
+            bot.send_message(
+                user_id,
+                "Токен сохранен. Можешь выбрать время, удобное для отправки дз. Формат: /time weekday HH:MM"
+            )
+            database.execute("UPDATE users SET state=?, token=? WHERE user_id=?", (STATE_COMPLETE, token, user_id))
+            database.execute('DELETE FROM educations WHERE user_id=?', (user_id, ))
 
-        bot.send_message(
-            user_id,
-            "Токен сохранен. Можешь выбрать время, удобное для отправки дз. Формат: /time weekday HH:MM"
-        )
-        database.execute("UPDATE users SET state=?, token=? WHERE user_id=?", (STATE_COMPLETE, token, user_id))
-        database.execute('DELETE FROM educations WHERE user_id=?', (user_id, ))
+            for i in res['data']['items']:
+                for j in i['educations']:
 
-        for i in res['data']['items']:
-            for j in i['educations']:
+                    database.execute(
+                        'INSERT INTO educations (education_id, user_id, firstname, lastname, school, class) '
+                        'VALUES (?, ?, ?, ?, ?, ?)',
+                        (j['education_id'], user_id, i['firstname'], i['surname'], j['institution_name'], j['group_name'])
+                    )
+                    database.commit()
+            return
 
-                database.execute(
-                    'INSERT INTO educations (education_id, user_id, firstname, lastname, school, class) '
-                    'VALUES (?, ?, ?, ?, ?, ?)',
-                    (j['education_id'], user_id, i['firstname'], i['surname'], j['institution_name'], j['group_name'])
-                )
-                database.commit()
-        return
-
-    bot.send_message(user_id, "Токен некорректный. Попробуй заново")
+        bot.send_message(user_id, "Токен некорректный. Попробуй заново")
+    except:
+        logging.exception('send_token error')
+        bot.send_message(user_id, 'Произошла ошибка')
     return
 
 
 @bot.message_handler(commands=["time"])
 def set_time(message: telebot.types.Message):
     user_id = message.chat.id
-    user = get_user(user_id)
-
-    if user is None:
-        bot.send_message(user_id, u"Сначала используй команду /start")
-        return
-
-    if user['state'] not in [STATE_COMPLETE]:
-        bot.send_message(user_id, 'Сначала заверши настройку бота')
-        return
-
     try:
-        weekdays = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+        user = get_user(user_id)
 
-        words = message.text.split(" ")
-        time_send = words[-1]
-        weekday = weekdays[words[-2]]
+        if user is None:
+            bot.send_message(user_id, u"Сначала используй команду /start")
+            return
 
-        if time_send != "25:00":
-            datetime.datetime.strptime(time_send, "%H:%M")
-            database.execute("UPDATE schedules SET time=? WHERE user_id=? AND day=?", (time_send, user_id, weekday))
+        if user['state'] not in [STATE_COMPLETE]:
+            bot.send_message(user_id, 'Сначала заверши настройку бота')
+            return
+
+        try:
+            weekdays = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+
+            words = message.text.split(" ")
+            time_send = words[-1]
+            weekday = weekdays[words[-2]]
+
+            if time_send != "25:00":
+                datetime.datetime.strptime(time_send, "%H:%M")
+                database.execute("UPDATE schedules SET time=? WHERE user_id=? AND day=?", (time_send, user_id, weekday))
+                database.commit()
+                if weekday == 6:
+                    bot.send_message(
+                        user_id,
+                        "Отлично, поздраевляю, настройка окончена, теперь ты будешь получать домашнее задание в Telegram. "
+                        "Если возникнут технические проблемы, то обращайся к моим создателям (@Fiatkin или @FJSAGS)"
+                    )
+            else:
+                database.execute("DELETE FROM schedules WHERE user_id=? AND day=?", (user_id, weekday))
+
             database.commit()
-            if weekday == 6:
-                bot.send_message(
-                    user_id,
-                    "Отлично, поздраевляю, настройка окончена, теперь ты будешь получать домашнее задание в Telegram. "
-                    "Если возникнут технические проблемы, то обращайся к моим создателям (@Fiatkin или @FJSAGS)"
-                )
-        else:
-            database.execute("DELETE FROM schedules WHERE user_id=? AND day=?", (user_id, weekday))
 
-        database.commit()
-
+        except:
+            bot.send_message(
+                user_id,
+                "Время указано в неверном формате, оно должно быть в HH:MM"
+            )
     except:
-        bot.send_message(
-            user_id,
-            "Время указано в неверном формате, оно должно быть в HH:MM"
-        )
+        logging.exception('set_time error')
+        bot.send_message(user_id, 'Произошла ошибка')
     return
 
 
@@ -337,13 +346,19 @@ def send_homework(user_id):
                 logging.exception('Error while get homework')
                 bot.send_message(user_id, u'Произошла ошибка, напишите @Fiatikin')
     except:
-        logging.exception('Error in send_homework')
+        logging.exception('send_homework error')
     return
 
 
 @bot.message_handler(commands=['homework'])
 def send_func(message: telebot.types.Message):
-    send_homework(message.chat.id)
+    user_id = message.chat.id
+    try:
+        send_homework(user_id)
+    except:
+        logging.exception('send_func error')
+        bot.send_message(user_id, 'Произошла ошибка')
+    return
 
 
 def send_on_time():
