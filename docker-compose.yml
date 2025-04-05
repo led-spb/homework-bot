@@ -9,4 +9,4 @@ services:
       environment:
         - BOT_TOKEN=${BOT_TOKEN}
       volumes:
-        ./dnevnik.db:/app/dnevnik.db
+        - ./dnevnik.db:/app/dnevnik.db
